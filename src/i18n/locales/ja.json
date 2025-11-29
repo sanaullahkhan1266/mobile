@@ -1,0 +1,30 @@
+{
+  "language": {
+    "title": "言語",
+    "description": "言語選択はRedotPayのメール、SMS、アプリ内通知、およびログインしているすべてのデバイスに適用されます。",
+    "englishUS": "English US",
+    "arabic": "العربية",
+    "spanish": "Español",
+    "french": "Français",
+    "hindi": "हिंदी",
+    "japanese": "日本語",
+    "korean": "한국인",
+    "polish": "Polski",
+    "portuguese": "Português",
+    "romanian": "Română",
+    "thai": "ภาษาไทย",
+    "turkish": "Türkçe"
+  },
+  "settings": {
+    "title": "設定",
+    "language": "言語",
+    "currency": "通貨"
+  },
+  "common": {
+    "back": "戻る",
+    "save": "保存",
+    "cancel": "キャンセル",
+    "done": "完了",
+    "loading": "読み込み中..."
+  }
+}

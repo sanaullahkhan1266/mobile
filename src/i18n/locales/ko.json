@@ -1,0 +1,30 @@
+{
+  "language": {
+    "title": "언어",
+    "description": "언어 선택은 RedotPay 이메일, SMS, 앱 내 알림 및 로그인한 모든 장치에 적용됩니다.",
+    "englishUS": "English US",
+    "arabic": "العربية",
+    "spanish": "Español",
+    "french": "Français",
+    "hindi": "हिंदी",
+    "japanese": "日本語",
+    "korean": "한국인",
+    "polish": "Polski",
+    "portuguese": "Português",
+    "romanian": "Română",
+    "thai": "ภาษาไทย",
+    "turkish": "Türkçe"
+  },
+  "settings": {
+    "title": "설정",
+    "language": "언어",
+    "currency": "통화"
+  },
+  "common": {
+    "back": "뒤로",
+    "save": "저장",
+    "cancel": "취소",
+    "done": "완료",
+    "loading": "로딩 중..."
+  }
+}

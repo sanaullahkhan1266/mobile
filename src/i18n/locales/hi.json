@@ -1,0 +1,30 @@
+{
+  "language": {
+    "title": "भाषा",
+    "description": "आपका भाषा चयन RedotPay ईमेल, SMS, इन-ऐप नोटिफिकेशन और सभी डिवाइसेस पर लागू होता है जिनमें आप लॉग इन हैं।",
+    "englishUS": "English US",
+    "arabic": "العربية",
+    "spanish": "Español",
+    "french": "Français",
+    "hindi": "हिंदी",
+    "japanese": "日本語",
+    "korean": "한국인",
+    "polish": "Polski",
+    "portuguese": "Português",
+    "romanian": "Română",
+    "thai": "ภาษาไทย",
+    "turkish": "Türkçe"
+  },
+  "settings": {
+    "title": "सेटिंग्स",
+    "language": "भाषा",
+    "currency": "मुद्रा"
+  },
+  "common": {
+    "back": "पीछे",
+    "save": "सेव करें",
+    "cancel": "रद्द करें",
+    "done": "पूर्ण",
+    "loading": "लोड हो रहा है..."
+  }
+}

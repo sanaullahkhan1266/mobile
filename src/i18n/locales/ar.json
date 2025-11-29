@@ -1,0 +1,30 @@
+{
+  "language": {
+    "title": "اللغة",
+    "description": "اختيار اللغة ينطبق على رسائل RedotPay الإلكترونية والرسائل النصية والإشعارات داخل التطبيق وجميع الأجهزة التي قمت بتسجيل الدخول إليها.",
+    "englishUS": "English US",
+    "arabic": "العربية",
+    "spanish": "Español",
+    "french": "Français",
+    "hindi": "हिंदी",
+    "japanese": "日本語",
+    "korean": "한국인",
+    "polish": "Polski",
+    "portuguese": "Português",
+    "romanian": "Română",
+    "thai": "ภาษาไทย",
+    "turkish": "Türkçe"
+  },
+  "settings": {
+    "title": "الإعدادات",
+    "language": "اللغة",
+    "currency": "العملة"
+  },
+  "common": {
+    "back": "رجوع",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "done": "تم",
+    "loading": "جاري التحميل..."
+  }
+}

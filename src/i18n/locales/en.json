@@ -1,0 +1,30 @@
+{
+  "language": {
+    "title": "Language",
+    "description": "Your language selection applies to RedotPay emails, SMS, in-app notifications and all devices you're logged into.",
+    "englishUS": "English US",
+    "arabic": "العربية",
+    "spanish": "Español",
+    "french": "Français",
+    "hindi": "हिंदी",
+    "japanese": "日本語",
+    "korean": "한국인",
+    "polish": "Polski",
+    "portuguese": "Português",
+    "romanian": "Română",
+    "thai": "ภาษาไทย",
+    "turkish": "Türkçe"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "currency": "Currency"
+  },
+  "common": {
+    "back": "Back",
+    "save": "Save",
+    "cancel": "Cancel",
+    "done": "Done",
+    "loading": "Loading..."
+  }
+}
