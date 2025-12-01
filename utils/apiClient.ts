@@ -1,6 +1,6 @@
-import axios, { AxiosInstance, AxiosError, AxiosResponse } from 'axios';
-import * as SecureStore from 'expo-secure-store';
 import { API_BASE_URL, API_TIMEOUT, RETRY_CONFIG } from '@/constants/api';
+import axios, { AxiosError, AxiosInstance, AxiosResponse } from 'axios';
+import * as SecureStore from 'expo-secure-store';
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -24,14 +24,29 @@ const apiClient: AxiosInstance = axios.create({
   },
 });
 
-// Store for token (can be from Clerk or backend JWT)
+// Store for tokens (can be from Clerk or backend JWT)
 let authToken: string | null = null;
+let refreshToken: string | null = null;
 
-// Request interceptor to add auth token
+// Request interceptor to add auth token and CSRF protection
 apiClient.interceptors.request.use(
   async (config) => {
     try {
-      // Try to get token from secure store
+      // Add CSRF token for state-changing requests
+      if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(config.method?.toUpperCase() || '')) {
+        try {
+          const { csrfProtection } = await import('./csrfProtection');
+          const csrfToken = await csrfProtection.getCSRFToken();
+          if (csrfToken) {
+            config.headers['X-CSRF-Token'] = csrfToken;
+          }
+        } catch (csrfError) {
+          // CSRF protection is optional, continue without it
+          console.warn('CSRF protection not available:', csrfError);
+        }
+      }
+
+      // Add auth token
       const token = await SecureStore.getItemAsync('authToken');
       if (token && token.trim() !== '') {
         authToken = token;
@@ -101,10 +116,17 @@ apiClient.interceptors.response.use(
 );
 
 // Utility functions
-export const setAuthToken = async (token: string) => {
+export const setAuthToken = async (token: string, refresh?: string) => {
   authToken = token;
+  if (refresh) {
+    refreshToken = refresh;
+  }
+
   try {
     await SecureStore.setItemAsync('authToken', token);
+    if (refresh) {
+      await SecureStore.setItemAsync('refreshToken', refresh);
+    }
   } catch (error) {
     console.error('Failed to store auth token:', error);
   }
@@ -112,14 +134,29 @@ export const setAuthToken = async (token: string) => {
 
 export const clearAuthToken = async () => {
   authToken = null;
+  refreshToken = null;
+
   try {
     await SecureStore.deleteItemAsync('authToken');
+    await SecureStore.deleteItemAsync('refreshToken');
   } catch (error) {
     console.error('Failed to clear auth token:', error);
   }
 };
 
 export const getAuthToken = (): string | null => authToken;
+
+export const getRefreshToken = async (): Promise<string | null> => {
+  if (refreshToken) return refreshToken;
+
+  try {
+    refreshToken = await SecureStore.getItemAsync('refreshToken');
+    return refreshToken;
+  } catch (error) {
+    console.error('Failed to get refresh token:', error);
+    return null;
+  }
+};
 
 // Generic API call wrapper with better error handling
 export const apiCall = async <T = any>(

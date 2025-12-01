@@ -1,12 +1,10 @@
-import React from 'react';
-import { LoginScreen } from '../components/LoginScreen';
-import { useRouter } from 'expo-router';
-import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useGoogleOAuth } from '../utils/oauth';
-import { loginWithBackend, AuthResponse, TwoFactorResponse } from '@/services/authService';
+import { useRouter } from 'expo-router';
+import React from 'react';
+import { Alert, Platform, Alert as RNAlert } from 'react-native';
+import { LoginScreen } from '../components/LoginScreen';
 import { connectMetamaskWeb } from '../utils/metamask';
-import { Platform, Alert as RNAlert } from 'react-native';
+import { useGoogleOAuth } from '../utils/oauth';
 
 const LoginPage = () => {
   const router = useRouter();
@@ -14,36 +12,67 @@ const LoginPage = () => {
   const handleLogin = async (credentials: { email: string; password: string }) => {
     const { email, password } = credentials;
     try {
-      const result = await loginWithBackend({ email, password });
+      console.log('🔵 Logging in with email:', email);
 
-      if ('requiresTwoFactor' in result) {
-        const twoFa = result as TwoFactorResponse;
+      const response = await fetch('http://23.22.178.240/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password: password,
+        }),
+      });
+
+      const data = await response.json();
+      console.log('✅ Login Response:', data);
+      console.log('✅ Response Status:', response.status);
+      console.log('✅ Response OK:', response.ok);
+
+      // Check if login was successful
+      const isSuccess = response.ok ||
+        data.success ||
+        data.message?.toLowerCase().includes('success') ||
+        data.token;
+
+      if (!isSuccess) {
+        throw new Error(data.message || 'Login failed');
+      }
+
+      // Check for 2FA
+      if (data.requiresTwoFactor) {
         Alert.alert(
           'Two-Factor Required',
-          `2FA is enabled for ${twoFa.email || email}. This app does not yet implement the 2FA screen.`,
+          `2FA is enabled for ${email}. This app does not yet implement the 2FA screen.`,
         );
         return;
       }
 
-      // Normal login success: mark onboarding complete and go to main tabs
+      console.log('✅ Login successful! Navigating to home...');
+
+      // Mark onboarding complete
       try {
         await AsyncStorage.setItem('onboardingComplete', 'true');
       } catch (storageError) {
         console.warn('Failed to update onboarding status:', storageError);
       }
 
+      // Navigate to home
       router.replace('/(tabs)');
     } catch (error: any) {
-      console.error('Login error:', error);
+      console.error('❌ Login error:', error);
       const rawMessage: string = error?.message || '';
 
       let friendlyMessage = 'An error occurred during login. Please try again.';
-      if (rawMessage.toLowerCase().includes('invalid credentials')) {
-        friendlyMessage = 'Incorrect email or password.';
+
+      if (rawMessage.toLowerCase().includes('invalid') ||
+        rawMessage.toLowerCase().includes('authentication failed')) {
+        friendlyMessage = 'Incorrect email or password.\n\nPlease check:\n• Email is correct\n• Password is correct\n• Account is verified (check OTP email)';
       } else if (rawMessage.toLowerCase().includes('not found')) {
-        friendlyMessage = "We couldn't find an account for that email. Please sign up first.";
+        friendlyMessage = "We couldn't find an account for that email.\n\nPlease sign up first.";
       } else if (rawMessage.toLowerCase().includes('too many')) {
         friendlyMessage = 'Too many attempts. Please wait a bit and try again.';
+      } else if (rawMessage.toLowerCase().includes('not verified')) {
+        friendlyMessage = 'Please verify your email first.\n\nCheck your inbox for the OTP code.';
       } else if (rawMessage) {
         friendlyMessage = rawMessage;
       }
@@ -57,14 +86,11 @@ const LoginPage = () => {
   };
 
   const handleSignUp = () => {
-    // Navigate to sign up screen
     router.push('/signup');
   };
 
-  // Google OAuth
   const onGoogle = useGoogleOAuth();
 
-  // MetaMask connect (web only). This is not linked to Clerk; it only connects wallet.
   const onMetamask = async () => {
     if (Platform.OS !== 'web') {
       RNAlert.alert('MetaMask', 'MetaMask connect is available on web during development.');
