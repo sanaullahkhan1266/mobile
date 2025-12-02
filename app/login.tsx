@@ -49,6 +49,17 @@ const LoginPage = () => {
 
       console.log('✅ Login successful! Navigating to home...');
 
+      // Save auth token to secure store
+      if (data.token) {
+        try {
+          const SecureStore = await import('expo-secure-store');
+          await SecureStore.setItemAsync('authToken', data.token);
+          console.log('✅ Auth token saved to secure store');
+        } catch (tokenError) {
+          console.error('Failed to save auth token:', tokenError);
+        }
+      }
+
       // Mark onboarding complete
       try {
         await AsyncStorage.setItem('onboardingComplete', 'true');

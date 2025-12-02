@@ -81,6 +81,17 @@ const VerifyPage = () => {
 
       console.log('✅✅ Login successful! Redirecting to home...');
 
+      // Save auth token to secure store
+      if (loginData.token) {
+        try {
+          const SecureStore = await import('expo-secure-store');
+          await SecureStore.setItemAsync('authToken', loginData.token);
+          console.log('✅ Auth token saved to secure store');
+        } catch (tokenError) {
+          console.error('Failed to save auth token:', tokenError);
+        }
+      }
+
       // Success!
       Alert.alert(
         'Welcome! 🎉',

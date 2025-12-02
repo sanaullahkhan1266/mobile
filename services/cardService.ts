@@ -1,17 +1,33 @@
-import { api } from '@/utils/apiClient';
 import { API_ENDPOINTS } from '@/constants/api';
+import { api } from '@/utils/apiClient';
 
 export interface Card {
+  _id?: string; // Backend uses _id
   id: string;
+  userId?: string;
   cardNumber: string;
+  cardNumberMasked?: string;
   lastFour: string;
   expiryDate: string;
+  expiryMonth?: string;
+  expiryYear?: string;
   cvv: string;
   cardholderName: string;
-  status: 'active' | 'inactive' | 'frozen' | 'terminated';
-  balance: string;
+  cardType?: 'VIRTUAL' | 'PHYSICAL';
+  brand?: string; // 'VISA', 'MASTERCARD', etc.
+  status: 'ACTIVE' | 'INACTIVE' | 'FROZEN' | 'TERMINATED' | 'active' | 'inactive' | 'frozen' | 'terminated';
+  balance: number | string;
+  spendLimit?: number;
+  dailySpendLimit?: number;
+  monthlySpendLimit?: number;
+  totalSpent?: number;
   currency: string;
   createdAt: string;
+  updatedAt?: string;
+  expiresAt?: string;
+  billingAddress?: Object;
+  metadata?: Object;
+  transactions?: Array<any>;
   provider?: string; // 'marqeta' or 'galileo'
 }
 
