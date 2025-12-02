@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, SafeAreaView, StatusBar, Dimensions, TextInput,
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { getUserProfile, updateUserProfile } from '@/services/profileService';
+import { logoutFromBackend } from '@/services/authService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -49,6 +50,30 @@ const ProfilePage = () => {
 
   const onPickAvatar = async () => {
     Alert.alert('Avatar', 'Profile pictures are not connected to the server yet.');
+  };
+
+  const handleLogout = async () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await logoutFromBackend();
+              router.replace('/login');
+            } catch (error) {
+              console.error('Logout error:', error);
+              // Navigate to login anyway even if backend logout fails
+              router.replace('/login');
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (!backendProfile && saving) {
@@ -203,7 +228,7 @@ const ProfilePage = () => {
         </View>
 
         {/* Logout Button */}
-        <TouchableOpacity style={styles.logoutButton}>
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={20} color="#FFFFFF" />
           <Text style={styles.logoutText}>log out</Text>
         </TouchableOpacity>
