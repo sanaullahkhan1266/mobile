@@ -143,7 +143,7 @@ const CardScreen = () => {
               currentCard?.cardType === 'PHYSICAL' ? s.physicalCard : s.virtualCard
             ]}>
               {/* EnPaying brand - top right */}
-              <Text style={s.cardBrand}>EnPaying</Text>
+              <Text style={s.cardBrand}>Cardtik</Text>
 
               {hasCards && (
                 <>

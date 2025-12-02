@@ -1,20 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  StatusBar,
-  TouchableOpacity,
-  Dimensions,
-  TextInput,
-  ActivityIndicator,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import Theme from '@/constants/Theme';
+import { getRecipients, getWalletAddresses } from '@/services/paymentService';
+import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { getWalletAddresses, getRecipients } from '@/services/paymentService';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  SafeAreaView,
+  Share,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 
 const { width, height } = Dimensions.get('window');
 
@@ -24,28 +27,46 @@ const ReceiveScreen = () => {
   const [sendMethod, setSendMethod] = useState('Phone');
   const [recipientInput, setRecipientInput] = useState('');
   const [walletAddress, setWalletAddress] = useState('');
+  const [selectedNetwork, setSelectedNetwork] = useState('bnb');
   const [recipients, setRecipients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [walletAddresses, setWalletAddresses] = useState<any>({});
 
   const tabs = ['Receive', 'Send'];
   const sendMethods = ['UID', 'Email', 'Phone'];
+
+  // Available networks
+  const networks = [
+    { id: 'bnb', name: 'BNB Smart Chain', symbol: 'BNB', icon: '🟡' },
+    { id: 'eth', name: 'Ethereum', symbol: 'ETH', icon: '💎' },
+    { id: 'btc', name: 'Bitcoin', symbol: 'BTC', icon: '₿' },
+  ];
 
   // Fetch wallet address and recipients
   useEffect(() => {
     fetchData();
   }, []);
 
+  // Update wallet address when network changes
+  useEffect(() => {
+    if (walletAddresses[selectedNetwork]) {
+      setWalletAddress(walletAddresses[selectedNetwork]);
+    }
+  }, [selectedNetwork, walletAddresses]);
+
   const fetchData = async () => {
     setLoading(true);
     try {
       const addresses = await getWalletAddresses();
+      setWalletAddresses(addresses);
       // Default to BNB chain address
-      setWalletAddress(addresses.bnb || '');
-      
+      setWalletAddress(addresses.bnb || addresses.eth || addresses.btc || '');
+
       const recipientsList = await getRecipients();
       setRecipients(recipientsList || []);
     } catch (error) {
       console.error('Failed to fetch data:', error);
+      Alert.alert('Error', 'Failed to load wallet address');
     } finally {
       setLoading(false);
     }
@@ -54,53 +75,122 @@ const ReceiveScreen = () => {
   const handleCopyAddress = async () => {
     if (walletAddress) {
       await Clipboard.setStringAsync(walletAddress);
+      Alert.alert('Copied!', 'Wallet address copied to clipboard');
     }
   };
 
-  // QR Code pattern - simplified representation
-  const renderQRCode = () => (
-    <View style={styles.qrContainer}>
-      {/* QR Code pattern */}
-      <View style={styles.qrCode}>
-        {/* Top-left corner */}
-        <View style={[styles.qrCorner, styles.topLeft]}>
-          <View style={styles.qrCornerInner} />
+  const handleShare = async () => {
+    if (walletAddress) {
+      try {
+        await Share.share({
+          message: `Send crypto to my wallet:\n\nNetwork: ${networks.find(n => n.id === selectedNetwork)?.name}\nAddress: ${walletAddress}`,
+        });
+      } catch (error) {
+        console.error('Error sharing:', error);
+      }
+    }
+  };
+
+  const renderReceiveScreen = () => (
+    <View style={styles.receiveContent}>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Theme.success} />
+          <Text style={styles.loadingText}>Loading wallet address...</Text>
         </View>
-        
-        {/* Top-right corner */}
-        <View style={[styles.qrCorner, styles.topRight]}>
-          <View style={styles.qrCornerInner} />
-        </View>
-        
-        {/* Bottom-left corner */}
-        <View style={[styles.qrCorner, styles.bottomLeft]}>
-          <View style={styles.qrCornerInner} />
-        </View>
-        
-        {/* Center logo */}
-        <View style={styles.centerLogo}>
-          <View style={styles.logoCircle}>
-            <Text style={styles.logoText}>En</Text>
+      ) : (
+        <>
+          {/* Network Selector */}
+          <View style={styles.networkSection}>
+            <Text style={styles.sectionTitle}>Select Network</Text>
+            <View style={styles.networkButtons}>
+              {networks.map((network) => (
+                <TouchableOpacity
+                  key={network.id}
+                  style={[
+                    styles.networkButton,
+                    selectedNetwork === network.id && styles.networkButtonActive,
+                  ]}
+                  onPress={() => setSelectedNetwork(network.id)}
+                >
+                  <Text style={styles.networkIcon}>{network.icon}</Text>
+                  <Text
+                    style={[
+                      styles.networkText,
+                      selectedNetwork === network.id && styles.networkTextActive,
+                    ]}
+                  >
+                    {network.symbol}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
-        </View>
-        
-        {/* Random QR pattern */}
-        <View style={styles.qrPattern}>
-          {Array.from({ length: 300 }).map((_, index) => (
-            <View
-              key={index}
-              style={[
-                styles.qrDot,
-                {
-                  left: `${(index % 20) * 5}%`,
-                  top: `${Math.floor(index / 20) * 6.67}%`,
-                  opacity: Math.random() > 0.5 ? 1 : 0,
-                },
-              ]}
-            />
-          ))}
-        </View>
-      </View>
+
+          {/* QR Code Section */}
+          <View style={styles.qrSection}>
+            <Text style={styles.qrTitle}>Scan to Pay</Text>
+            <View style={styles.qrContainer}>
+              {walletAddress ? (
+                <QRCode
+                  value={walletAddress}
+                  size={220}
+                  backgroundColor="white"
+                  color="black"
+                />
+              ) : (
+                <View style={styles.qrPlaceholder}>
+                  <Ionicons name="qr-code-outline" size={100} color={Theme.muted} />
+                  <Text style={styles.qrPlaceholderText}>No address available</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.qrSubtext}>
+              Scan this QR code to send {networks.find(n => n.id === selectedNetwork)?.symbol} to this wallet
+            </Text>
+          </View>
+
+          {/* Wallet Address */}
+          <View style={styles.addressSection}>
+            <Text style={styles.addressLabel}>Wallet Address</Text>
+            <View style={styles.addressContainer}>
+              <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="middle">
+                {walletAddress || 'No address available'}
+              </Text>
+            </View>
+
+            {/* Action Buttons */}
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={handleCopyAddress}
+                disabled={!walletAddress}
+              >
+                <Ionicons name="copy-outline" size={20} color={Theme.success} />
+                <Text style={styles.actionButtonText}>Copy</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={handleShare}
+                disabled={!walletAddress}
+              >
+                <Ionicons name="share-outline" size={20} color={Theme.success} />
+                <Text style={styles.actionButtonText}>Share</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Warning */}
+          <View style={styles.warningBox}>
+            <Ionicons name="warning-outline" size={20} color="#F59E0B" />
+            <Text style={styles.warningText}>
+              Only send {networks.find(n => n.id === selectedNetwork)?.name} assets to this address.
+              Sending other assets may result in permanent loss.
+            </Text>
+          </View>
+        </>
+      )}
     </View>
   );
 
@@ -114,7 +204,7 @@ const ReceiveScreen = () => {
             <Ionicons name="scan-outline" size={24} color="#1F2937" />
           </TouchableOpacity>
         </View>
-        
+
         {/* Method Selection */}
         <View style={styles.methodTabs}>
           {sendMethods.map((method) => (
@@ -135,7 +225,7 @@ const ReceiveScreen = () => {
             </TouchableOpacity>
           ))}
         </View>
-        
+
         {/* Input Field */}
         <View style={styles.inputContainer}>
           {sendMethod === 'Phone' && (
@@ -158,7 +248,7 @@ const ReceiveScreen = () => {
               </TouchableOpacity>
             </View>
           )}
-          
+
           {sendMethod === 'Email' && (
             <TextInput
               style={styles.textInput}
@@ -169,7 +259,7 @@ const ReceiveScreen = () => {
               keyboardType="email-address"
             />
           )}
-          
+
           {sendMethod === 'UID' && (
             <TextInput
               style={styles.textInput}
@@ -180,9 +270,9 @@ const ReceiveScreen = () => {
             />
           )}
         </View>
-        
+
         {/* Next Button */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[
             styles.nextButton,
             !recipientInput && styles.nextButtonDisabled
@@ -198,7 +288,7 @@ const ReceiveScreen = () => {
           </Text>
         </TouchableOpacity>
       </View>
-      
+
       {/* Recent Recipients Section */}
       <View style={styles.recentSection}>
         <View style={styles.sectionHeader}>
@@ -207,7 +297,7 @@ const ReceiveScreen = () => {
             <Ionicons name="time-outline" size={20} color="#6B7280" />
           </TouchableOpacity>
         </View>
-        
+
         {/* Empty State */}
         <View style={styles.emptyState}>
           <View style={styles.emptyStateIcon}>
@@ -225,79 +315,32 @@ const ReceiveScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      
+
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#1F2937" />
         </TouchableOpacity>
-        <View style={styles.headerTabs}>
+        <View style={styles.tabContainer}>
           {tabs.map((tab) => (
             <TouchableOpacity
               key={tab}
-              style={[
-                styles.headerTab,
-                activeTab === tab && styles.activeHeaderTab
-              ]}
+              style={[styles.tab, activeTab === tab && styles.activeTab]}
               onPress={() => setActiveTab(tab)}
             >
-              <Text style={[
-                styles.headerTabText,
-                activeTab === tab && styles.activeHeaderTabText
-              ]}>
+              <Text style={[styles.tabText, activeTab === tab && styles.activeTabText]}>
                 {tab}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
-        <TouchableOpacity style={styles.historyButton}>
+        <TouchableOpacity style={styles.historyButton} onPress={() => router.push('/records')}>
           <Ionicons name="time-outline" size={24} color="#1F2937" />
         </TouchableOpacity>
       </View>
 
-      <View style={styles.content}>
-        {activeTab === 'Receive' ? (
-          <>
-            {/* Title and Description */}
-            <View style={styles.titleSection}>
-              <Text style={styles.title}>Receive</Text>
-              <Text style={styles.description}>
-                Receive crypto from Cardtick users in your wallet
-              </Text>
-            </View>
-
-            {/* Instructions */}
-            <View style={styles.instructionsContainer}>
-              <Text style={styles.instructionsText}>
-                Scan with the Cardtick app to pay
-              </Text>
-            </View>
-
-            {/* QR Code */}
-            {renderQRCode()}
-
-            {/* Action Buttons */}
-            <View style={styles.actionButtons}>
-              <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
-                <Text style={styles.actionButtonText}>Set Amount</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionButton} activeOpacity={0.7}>
-                <Text style={styles.actionButtonText}>Share QR Code</Text>
-              </TouchableOpacity>
-            </View>
-          </>
-        ) : (
-          <>
-            {/* Title */}
-            <View style={styles.sendTitleSection}>
-              <Text style={styles.sendTitle}>Send</Text>
-            </View>
-            
-            {/* Send Screen */}
-            {renderSendScreen()}
-          </>
-        )}
-      </View>
+      {/* Content */}
+      {activeTab === 'Receive' ? renderReceiveScreen() : renderSendScreen()}
     </SafeAreaView>
   );
 };
@@ -306,6 +349,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Theme.bg,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: Theme.muted,
   },
   header: {
     flexDirection: 'row',
@@ -322,197 +376,177 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTabs: {
-    flexDirection: 'row',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 24,
-    padding: 4,
-  },
-  headerTab: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  activeHeaderTab: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  headerTabText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Theme.muted,
-  },
-  activeHeaderTabText: {
-    color: Theme.text,
-  },
   historyButton: {
     width: 40,
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  titleSection: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: Theme.text,
-    marginBottom: 12,
-  },
-  description: {
-    fontSize: 16,
-    color: Theme.muted,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  instructionsContainer: {
-    marginBottom: 40,
-  },
-  instructionsText: {
-    fontSize: 16,
-    color: Theme.text,
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  qrContainer: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  qrCode: {
-    width: 240,
-    height: 240,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    position: 'relative',
-  },
-  qrCorner: {
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    borderWidth: 4,
-    borderColor: '#1F2937',
-  },
-  topLeft: {
-    top: 20,
-    left: 20,
-  },
-  topRight: {
-    top: 20,
-    right: 20,
-  },
-  bottomLeft: {
-    bottom: 20,
-    left: 20,
-  },
-  qrCornerInner: {
-    flex: 1,
-    margin: 8,
-    backgroundColor: '#1F2937',
-  },
-  centerLogo: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    marginTop: -20,
-    marginLeft: -20,
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#EF4444',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  qrPattern: {
-    position: 'absolute',
-    top: 20,
-    left: 20,
-    right: 20,
-    bottom: 20,
-  },
-  qrDot: {
-    position: 'absolute',
-    width: 4,
-    height: 4,
-    backgroundColor: '#1F2937',
-  },
-  actionButtons: {
+  tabContainer: {
     flexDirection: 'row',
-    gap: 16,
-    width: '100%',
-  },
-  actionButton: {
-    flex: 1,
     backgroundColor: '#F3F4F6',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
+    borderRadius: 8,
+    padding: 4,
   },
-  actionButtonText: {
+  tab: {
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  activeTab: {
+    backgroundColor: '#FFFFFF',
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6B7280',
+  },
+  activeTabText: {
+    color: '#1F2937',
+  },
+  receiveContent: {
+    flex: 1,
+    padding: 20,
+  },
+  networkSection: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: Theme.text,
+    marginBottom: 12,
   },
-  // Send Screen Styles
-  sendTitleSection: {
-    alignItems: 'flex-start',
-    width: '100%',
+  networkButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  networkButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderWidth: 2,
+    borderColor: Theme.border,
+    borderRadius: 12,
+    backgroundColor: Theme.card,
+    gap: 8,
+  },
+  networkButtonActive: {
+    borderColor: Theme.success,
+    backgroundColor: '#ECFDF5',
+  },
+  networkIcon: {
+    fontSize: 20,
+  },
+  networkText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Theme.muted,
+  },
+  networkTextActive: {
+    color: Theme.success,
+  },
+  qrSection: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  qrTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Theme.text,
+    marginBottom: 20,
+  },
+  qrContainer: {
+    padding: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  qrPlaceholder: {
+    width: 220,
+    height: 220,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+  },
+  qrPlaceholderText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: Theme.muted,
+  },
+  qrSubtext: {
+    marginTop: 16,
+    fontSize: 14,
+    color: Theme.muted,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  addressSection: {
     marginBottom: 24,
   },
-  sendTitle: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#1F2937',
+  addressLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Theme.muted,
+    marginBottom: 8,
+  },
+  addressContainer: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  addressText: {
+    fontSize: 14,
+    fontFamily: 'monospace',
+    color: Theme.text,
+    textAlign: 'center',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    backgroundColor: '#ECFDF5',
+    borderRadius: 12,
+    gap: 8,
+  },
+  actionButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Theme.success,
+  },
+  warningBox: {
+    flexDirection: 'row',
+    backgroundColor: '#FEF3C7',
+    borderRadius: 12,
+    padding: 16,
+    gap: 12,
+  },
+  warningText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#92400E',
+    lineHeight: 18,
   },
   sendContent: {
     flex: 1,
-    width: '100%',
+    padding: 20,
   },
   recipientSection: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-  },
-  recentSection: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    padding: 20,
-    flex: 1,
+    marginBottom: 32,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -520,35 +554,35 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 16,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
   scanButton: {
-    padding: 4,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   methodTabs: {
     flexDirection: 'row',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    padding: 4,
     marginBottom: 16,
-    gap: 8,
   },
   methodTab: {
-    paddingHorizontal: 16,
+    flex: 1,
     paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#E5E7EB',
+    alignItems: 'center',
+    borderRadius: 6,
   },
   activeMethodTab: {
-    backgroundColor: '#1F2937',
+    backgroundColor: '#FFFFFF',
   },
   methodTabText: {
     fontSize: 14,
     fontWeight: '500',
-    color: Theme.muted,
+    color: '#6B7280',
   },
   activeMethodTabText: {
-    color: '#FFFFFF',
+    color: '#1F2937',
   },
   inputContainer: {
     marginBottom: 16,
@@ -556,45 +590,46 @@ const styles = StyleSheet.create({
   phoneInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    paddingHorizontal: 16,
-    height: 56,
+    borderColor: Theme.border,
+    borderRadius: 12,
+    backgroundColor: Theme.card,
   },
   countryCode: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 16,
+    borderRightWidth: 1,
+    borderRightColor: Theme.border,
+    gap: 4,
   },
   flagEmoji: {
-    fontSize: 16,
-    marginRight: 8,
+    fontSize: 20,
   },
   countryCodeText: {
     fontSize: 16,
-    fontWeight: '500',
-    color: '#1F2937',
-    marginRight: 4,
+    color: Theme.text,
+    marginLeft: 4,
   },
   phoneInput: {
     flex: 1,
+    paddingHorizontal: 12,
     fontSize: 16,
     color: Theme.text,
   },
   contactsButton: {
-    padding: 4,
+    padding: 16,
   },
   textInput: {
-    backgroundColor: Theme.card,
-    borderRadius: 12,
     borderWidth: 1,
     borderColor: Theme.border,
+    borderRadius: 12,
     paddingHorizontal: 16,
-    height: 56,
+    paddingVertical: 16,
     fontSize: 16,
     color: Theme.text,
+    backgroundColor: Theme.card,
   },
   nextButton: {
     backgroundColor: Theme.success,
@@ -613,9 +648,14 @@ const styles = StyleSheet.create({
   nextButtonTextDisabled: {
     color: '#9CA3AF',
   },
+  recentSection: {
+    flex: 1,
+  },
   emptyState: {
+    flex: 1,
     alignItems: 'center',
-    paddingVertical: 40,
+    justifyContent: 'center',
+    paddingVertical: 60,
   },
   emptyStateIcon: {
     position: 'relative',
@@ -623,14 +663,15 @@ const styles = StyleSheet.create({
   },
   paperPlaneIcon: {
     position: 'absolute',
-    top: -8,
+    bottom: -8,
     right: -8,
-    transform: [{ rotate: '45deg' }],
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 4,
   },
   emptyStateText: {
     fontSize: 16,
     color: Theme.muted,
-    textAlign: 'center',
   },
 });
 

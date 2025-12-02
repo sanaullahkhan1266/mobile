@@ -1,17 +1,21 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  StatusBar,
-  TouchableOpacity,
-  Dimensions,
-  TextInput,
-} from 'react-native';
+import Theme from '@/constants/Theme';
+import { getBalance } from '@/services/paymentService';
+import { executeSwap as executeSwapAPI, getExchangeRate } from '@/services/swapService';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import Theme from '@/constants/Theme';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 
@@ -25,9 +29,12 @@ interface Currency {
 
 const SwapScreen = () => {
   const router = useRouter();
-  const [fromAmount, setFromAmount] = useState('0.00');
-  const [toAmount, setToAmount] = useState('0.00');
-  const [exchangeRate, setExchangeRate] = useState(111924.7272);
+  const [fromAmount, setFromAmount] = useState('');
+  const [toAmount, setToAmount] = useState('');
+  const [exchangeRate, setExchangeRate] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [swapping, setSwapping] = useState(false);
+  const [balances, setBalances] = useState<any>(null);
 
   const currencies: Currency[] = [
     {
@@ -35,14 +42,14 @@ const SwapScreen = () => {
       name: 'Bitcoin',
       icon: '₿',
       color: '#F7931A',
-      balance: 0.00008935,
+      balance: 0,
     },
     {
       symbol: 'USDT',
       name: 'Tether',
       icon: '₮',
       color: '#26A17B',
-      balance: 1000000.00,
+      balance: 0,
     },
     {
       symbol: 'ETH',
@@ -53,18 +60,61 @@ const SwapScreen = () => {
     },
   ];
 
-  const [fromCurrency, setFromCurrency] = useState<Currency>(currencies[0]);
-  const [toCurrency, setToCurrency] = useState<Currency>(currencies[1]);
+  const [fromCurrency, setFromCurrency] = useState<Currency>(currencies[1]); // USDT
+  const [toCurrency, setToCurrency] = useState<Currency>(currencies[0]); // BTC
+
+  // Fetch balances and exchange rates on mount
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // Update exchange rate when currencies change
+  useEffect(() => {
+    if (fromCurrency && toCurrency) {
+      fetchExchangeRate();
+    }
+  }, [fromCurrency.symbol, toCurrency.symbol]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const balanceData = await getBalance();
+      setBalances(balanceData);
+
+      // Update currency balances from backend
+      currencies.forEach(currency => {
+        if (balanceData[currency.symbol]) {
+          currency.balance = parseFloat(balanceData[currency.symbol].balance || '0');
+        }
+      });
+
+      await fetchExchangeRate();
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+      Alert.alert('Error', 'Failed to load balance and rates. Using defaults.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchExchangeRate = async () => {
+    try {
+      const rateData = await getExchangeRate(fromCurrency.symbol, toCurrency.symbol);
+      setExchangeRate(rateData.rate);
+    } catch (error) {
+      console.log('Failed to fetch exchange rate, using fallback');
+    }
+  };
 
   const onChangeFromAmount = (val: string) => {
-    // allow only digits and a single dot
     const cleaned = val.replace(/[^0-9.]/g, '');
     const parts = cleaned.split('.');
     const normalized = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : cleaned;
     setFromAmount(normalized);
+
     const f = parseFloat(normalized || '0');
-    if (!isNaN(f)) {
-      setToAmount((f * exchangeRate).toFixed(2));
+    if (!isNaN(f) && exchangeRate > 0) {
+      setToAmount((f * exchangeRate).toFixed(8));
     } else {
       setToAmount('0.00');
     }
@@ -74,13 +124,79 @@ const SwapScreen = () => {
     const temp = fromCurrency;
     setFromCurrency(toCurrency);
     setToCurrency(temp);
-    
+
     const tempAmount = fromAmount;
     setFromAmount(toAmount);
     setToAmount(tempAmount);
   };
 
-  const renderCurrencySelector = (currency: Currency, type: 'from' | 'to', balance?: number) => (
+  const handleSwap = async () => {
+    if (!fromAmount || parseFloat(fromAmount) <= 0) {
+      Alert.alert('Error', 'Please enter an amount to swap');
+      return;
+    }
+
+    const fromBalance = balances?.[fromCurrency.symbol]?.balance || '0';
+    if (parseFloat(fromBalance) < parseFloat(fromAmount)) {
+      Alert.alert(
+        'Insufficient Balance',
+        `You need ${fromAmount} ${fromCurrency.symbol} but only have ${fromBalance} ${fromCurrency.symbol}`
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Confirm Swap',
+      `Swap ${fromAmount} ${fromCurrency.symbol} for ${toAmount} ${toCurrency.symbol}?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Confirm',
+          onPress: executeSwap,
+        },
+      ]
+    );
+  };
+
+  const executeSwap = async () => {
+    setSwapping(true);
+    try {
+      const result = await executeSwapAPI({
+        fromCurrency: fromCurrency.symbol,
+        toCurrency: toCurrency.symbol,
+        amount: fromAmount,
+        chain: 'bnb',
+      });
+
+      Alert.alert(
+        'Swap Successful!',
+        `Swapped ${fromAmount} ${fromCurrency.symbol} for ${result.data?.toAmount || toAmount} ${toCurrency.symbol}\n\nTransaction ID: ${result.data?.transactionId || 'N/A'}`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              setFromAmount('');
+              setToAmount('');
+              fetchData(); // Refresh balances
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      Alert.alert('Swap Failed', error.message || 'Failed to execute swap');
+    } finally {
+      setSwapping(false);
+    }
+  };
+
+  const getUserBalance = (symbol: string) => {
+    return balances?.[symbol]?.balance || '0';
+  };
+
+  const renderCurrencySelector = (currency: Currency, type: 'from' | 'to') => (
     <TouchableOpacity style={styles.currencySelector} activeOpacity={0.7}>
       <View style={styles.currencyInfo}>
         <View style={[styles.currencyIcon, { backgroundColor: currency.color }]}>
@@ -93,41 +209,37 @@ const SwapScreen = () => {
       </View>
       {type === 'from' && (
         <View style={styles.availableContainer}>
-          <Text style={styles.availableLabel}>Available: {balance?.toFixed(8) || '0.00'}</Text>
-          <TouchableOpacity style={styles.addButton}>
-            <Ionicons name="add" size={16} color="#1F2937" />
-          </TouchableOpacity>
+          <Text style={styles.availableLabel}>
+            Available: {parseFloat(getUserBalance(currency.symbol)).toFixed(8)}
+          </Text>
         </View>
       )}
     </TouchableOpacity>
   );
 
-  const renderKeypadButton = (value: string) => (
-    <TouchableOpacity
-      key={value}
-      style={styles.keypadButton}
-      onPress={() => handleKeypadPress(value)}
-      activeOpacity={0.7}
-    >
-      {value === 'delete' ? (
-        <Ionicons name="backspace-outline" size={24} color="#1F2937" />
-      ) : (
-        <Text style={styles.keypadButtonText}>{value}</Text>
-      )}
-    </TouchableOpacity>
-  );
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor={Theme.bg} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Theme.success} />
+          <Text style={styles.loadingText}>Loading swap data from backend...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={Theme.bg} />
-      
+
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#1F2937" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Swap</Text>
-        <TouchableOpacity style={styles.historyButton}>
+        <TouchableOpacity style={styles.historyButton} onPress={() => router.push('/records')}>
           <Ionicons name="time-outline" size={24} color="#1F2937" />
         </TouchableOpacity>
       </View>
@@ -138,7 +250,7 @@ const SwapScreen = () => {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionLabel}>From</Text>
           </View>
-          {renderCurrencySelector(fromCurrency, 'from', fromCurrency.balance)}
+          {renderCurrencySelector(fromCurrency, 'from')}
           <View style={styles.amountContainer}>
             <TextInput
               style={styles.amountInput}
@@ -148,7 +260,9 @@ const SwapScreen = () => {
               placeholder="0.00"
               placeholderTextColor={Theme.muted}
             />
-            <Text style={styles.usdValue}>≈ $ {(parseFloat(fromAmount || '0') * 65000).toFixed(2)}</Text>
+            <Text style={styles.usdValue}>
+              ≈ $ {(parseFloat(fromAmount || '0') * (fromCurrency.symbol === 'USDT' ? 1 : fromCurrency.symbol === 'BTC' ? 95000 : 3500)).toFixed(2)}
+            </Text>
           </View>
         </View>
 
@@ -166,12 +280,10 @@ const SwapScreen = () => {
           </View>
           {renderCurrencySelector(toCurrency, 'to')}
           <View style={styles.amountContainer}>
-            <TextInput
-              style={styles.amountInput}
-              value={toAmount}
-              editable={false}
-            />
-            <Text style={styles.usdValue}>≈ {(parseFloat(toAmount || '0') * 1).toFixed(2)} {toCurrency.symbol}</Text>
+            <Text style={styles.amountInput}>{toAmount || '0.00'}</Text>
+            <Text style={styles.usdValue}>
+              ≈ $ {(parseFloat(toAmount || '0') * (toCurrency.symbol === 'USDT' ? 1 : toCurrency.symbol === 'BTC' ? 95000 : 3500)).toFixed(2)}
+            </Text>
           </View>
         </View>
 
@@ -179,17 +291,31 @@ const SwapScreen = () => {
         <View style={styles.exchangeRateContainer}>
           <View style={styles.exchangeRate}>
             <Text style={styles.exchangeRateText}>
-              1 {fromCurrency.symbol} ≈ {exchangeRate} {toCurrency.symbol}
+              1 {fromCurrency.symbol} ≈ {exchangeRate.toFixed(8)} {toCurrency.symbol}
             </Text>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={fetchExchangeRate}>
               <Ionicons name="refresh" size={16} color="#6B7280" />
             </TouchableOpacity>
           </View>
         </View>
 
-      {/* Continue Button */}
-        <TouchableOpacity style={styles.continueButton} activeOpacity={0.8}>
-          <Text style={styles.continueButtonText}>Continue</Text>
+        {/* Continue Button */}
+        <TouchableOpacity
+          style={[
+            styles.continueButton,
+            (!fromAmount || parseFloat(fromAmount) <= 0 || swapping) && styles.continueButtonDisabled
+          ]}
+          activeOpacity={0.8}
+          onPress={handleSwap}
+          disabled={!fromAmount || parseFloat(fromAmount) <= 0 || swapping}
+        >
+          {swapping ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text style={styles.continueButtonText}>
+              Swap {fromAmount || '0'} {fromCurrency.symbol}
+            </Text>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -200,6 +326,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Theme.bg,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: Theme.muted,
   },
   header: {
     flexDirection: 'row',
@@ -285,14 +421,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Theme.muted,
   },
-  addButton: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   amountContainer: {
     alignItems: 'flex-start',
   },
@@ -338,6 +466,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     marginBottom: 24,
+  },
+  continueButtonDisabled: {
+    backgroundColor: Theme.border,
   },
   continueButtonText: {
     fontSize: 16,

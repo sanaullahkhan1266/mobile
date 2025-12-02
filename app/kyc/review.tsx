@@ -1,47 +1,85 @@
-import React, { useEffect, useState } from 'react';
-import { SafeAreaView, View, Text, StyleSheet, TouchableOpacity, StatusBar } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import kycService from '@/services/KycService';
-import kycApiService from '@/services/KycApiService';
 import AppHeader from '@/components/AppHeader';
+import kycApiService from '@/services/KycApiService';
+import kycService from '@/services/KycService';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { Alert, SafeAreaView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function KycReview() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [summary, setSummary] = useState<any>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const s = await kycService.getState();
-      setSummary(s);
-      const progress = kycService.computeProgress(s);
+      const state = await kycService.getState();
+      setSummary(state);
+      const progress = kycService.computeProgress(state);
       setReady(progress === 100);
     })();
   }, []);
 
-  const [submitting, setSubmitting] = useState(false);
   const submit = async () => {
     if (submitting) return;
     setSubmitting(true);
-    const state = await kycService.getState();
-    const payload = {
-      country: state.country,
-      countryCode: state.countryCode,
-      dialCode: state.dialCode,
-      personal: state.personal,
-      document: state.document,
-      selfieUri: state.selfieUri,
-    };
-    const res = await kycApiService.submitKyc(payload);
-    if (res.status === 'ok') {
-      await kycService.incrementAttempts();
-      await kycService.save({ status: 'submitted' });
-      router.replace('/kyc/success' as any);
-    } else {
-      alert(res.message || 'Submission failed');
+
+    try {
+      const state = await kycService.getState();
+      const payload = {
+        country: state.country,
+        countryCode: state.countryCode,
+        dialCode: state.dialCode,
+        personal: state.personal,
+        document: state.document,
+        selfieUri: state.selfieUri,
+      };
+
+      console.log('📝 Submitting KYC with payload:', payload);
+      const res = await kycApiService.submitKyc(payload);
+
+      if (res.success) {
+        await kycService.incrementAttempts();
+        await kycService.save({ status: 'submitted' });
+        router.replace('/kyc/success' as any);
+      } else {
+        alert(res.message || 'Submission failed');
+      }
+    } catch (error: any) {
+      console.error('KYC submission error:', error);
+
+      // Check if it's a file error
+      if (error.message && (error.message.includes('file') || error.message.includes('Code=260'))) {
+        Alert.alert(
+          'File Error! 📁',
+          'Your uploaded images are no longer available in cache.\n\nTap "Clear KYC & Start Over" below to upload fresh images.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        alert('Error: ' + (error.message || 'Failed to submit KYC'));
+      }
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
+  };
+
+  const clearKycAndRestart = async () => {
+    Alert.alert(
+      'Clear KYC Data? 🗑️',
+      'This will delete all your KYC progress and you can start fresh with new images.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear & Restart',
+          style: 'destructive',
+          onPress: async () => {
+            await kycService.clear();
+            Alert.alert('Cleared! ✅', 'KYC data cleared successfully!\n\nYou can now start fresh with new images.');
+            router.replace('/kyc/country' as any);
+          }
+        }
+      ]
+    );
   };
 
   return (
@@ -77,8 +115,21 @@ export default function KycReview() {
           <Text style={s.cardText}>{summary?.selfieDone ? 'Captured' : 'Pending'}</Text>
         </View>
 
-        <TouchableOpacity style={[s.primaryBtn, (!ready || submitting) && s.btnDisabled]} disabled={!ready || submitting} onPress={submit}>
-          <Text style={s.primaryText}>{submitting ? 'Submitting...' : ready ? 'Submit' : 'Complete all steps first'}</Text>
+        <TouchableOpacity
+          style={[s.primaryBtn, (!ready || submitting) && s.btnDisabled]}
+          disabled={!ready || submitting}
+          onPress={submit}
+        >
+          <Text style={s.primaryText}>
+            {submitting ? 'Submitting...' : ready ? 'Submit' : 'Complete all steps first'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={s.clearBtn}
+          onPress={clearKycAndRestart}
+        >
+          <Text style={s.clearText}>🗑️ Clear KYC & Start Over</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -87,9 +138,6 @@ export default function KycReview() {
 
 const s = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#F3F4F6' },
-  backButton: { padding: 8 },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: '#111827' },
   helper: { color: '#6B7280', marginBottom: 12 },
   card: { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 12, padding: 12, marginBottom: 12 },
   cardTitle: { fontWeight: '700', color: '#111827', marginBottom: 4 },
@@ -98,4 +146,6 @@ const s = StyleSheet.create({
   primaryBtn: { marginTop: 8, backgroundColor: '#000000', height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   btnDisabled: { backgroundColor: '#E5E7EB' },
   primaryText: { color: '#FFFFFF', fontWeight: '700' },
+  clearBtn: { marginTop: 12, backgroundColor: '#FEE2E2', height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#FCA5A5' },
+  clearText: { color: '#DC2626', fontWeight: '600' },
 });

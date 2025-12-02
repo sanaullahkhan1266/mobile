@@ -60,6 +60,13 @@ export const API_ENDPOINTS = {
     VERIFY: '/api/2fa/verify',
   },
 
+  // KYC Routes
+  KYC: {
+    SUBMIT: '/api/kyc/submit',
+    STATUS: '/api/kyc/status',
+    RETRY: '/api/kyc/retry',
+  },
+
   // Health Check
   HEALTH: '/api/health',
 };

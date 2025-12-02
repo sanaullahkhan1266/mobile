@@ -1,35 +1,234 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  StatusBar,
-  TouchableOpacity,
-  ScrollView,
-  TextInput,
-} from 'react-native';
+import Theme from '@/constants/Theme';
+import { getBalance, getRecipients } from '@/services/paymentService';
+import { calculateTransactionFee, sendTransaction } from '@/services/transactionService';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import Theme from '@/constants/Theme';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 const FiatPayoutScreen = () => {
   const router = useRouter();
-  const [sendAmount, setSendAmount] = useState('0.00');
-  const [receiveAmount, setReceiveAmount] = useState('0.00');
+  const [sendAmount, setSendAmount] = useState('');
+  const [receiveAmount, setReceiveAmount] = useState('');
   const [fromCurrency, setFromCurrency] = useState('USDT');
   const [toCurrency, setToCurrency] = useState('USD');
+  const [exchangeRate, setExchangeRate] = useState(0.9894);
+  const [fee, setFee] = useState('0');
+  const [balance, setBalance] = useState<any>(null);
+  const [recipients, setRecipients] = useState<any[]>([]);
+  const [selectedRecipient, setSelectedRecipient] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [showFromCurrencyModal, setShowFromCurrencyModal] = useState(false);
+  const [showToCurrencyModal, setShowToCurrencyModal] = useState(false);
+
+  // Available cryptocurrencies
+  const cryptoCurrencies = [
+    { symbol: 'USDT', name: 'Tether', icon: '₮', color: '#26A17B' },
+    { symbol: 'BTC', name: 'Bitcoin', icon: '₿', color: '#F7931A' },
+    { symbol: 'ETH', name: 'Ethereum', icon: 'Ξ', color: '#627EEA' },
+    { symbol: 'BNB', name: 'BNB', icon: 'B', color: '#F3BA2F' },
+  ];
+
+  // Available fiat currencies
+  const fiatCurrencies = [
+    { symbol: 'USD', name: 'US Dollar', flag: '🇺🇸' },
+    { symbol: 'EUR', name: 'Euro', flag: '🇪🇺' },
+    { symbol: 'PKR', name: 'Pakistani Rupee', flag: '🇵🇰' },
+    { symbol: 'GBP', name: 'British Pound', flag: '🇬🇧' },
+  ];
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    if (sendAmount && parseFloat(sendAmount) > 0) {
+      const amount = parseFloat(sendAmount);
+      const received = (amount * exchangeRate).toFixed(2);
+      setReceiveAmount(received);
+      calculateFee();
+    } else {
+      setReceiveAmount('');
+      setFee('0');
+    }
+  }, [sendAmount, exchangeRate]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const balanceData = await getBalance();
+      setBalance(balanceData);
+
+      const recipientsList = await getRecipients();
+      setRecipients(recipientsList || []);
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+      Alert.alert('Error', 'Failed to load balance and recipients');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const calculateFee = async () => {
+    if (!sendAmount || parseFloat(sendAmount) <= 0) {
+      setFee('0');
+      return;
+    }
+
+    try {
+      const feeData = await calculateTransactionFee({
+        amount: sendAmount,
+        currency: fromCurrency,
+        chain: 'bnb',
+      });
+      setFee(feeData.fee || '0');
+    } catch (error) {
+      // Fallback to 1% fee
+      const calculatedFee = (parseFloat(sendAmount) * 0.01).toFixed(2);
+      setFee(calculatedFee);
+    }
+  };
+
+  const selectFromCurrency = (currency: any) => {
+    setFromCurrency(currency.symbol);
+    setShowFromCurrencyModal(false);
+    if (sendAmount) {
+      calculateFee();
+    }
+  };
+
+  const selectToCurrency = (currency: any) => {
+    setToCurrency(currency.symbol);
+    setShowToCurrencyModal(false);
+  };
+
+  const getCurrentCrypto = () => {
+    return cryptoCurrencies.find(c => c.symbol === fromCurrency) || cryptoCurrencies[0];
+  };
+
+  const getCurrentFiat = () => {
+    return fiatCurrencies.find(f => f.symbol === toCurrency) || fiatCurrencies[0];
+  };
+
+  const handleSend = async () => {
+    if (!sendAmount || parseFloat(sendAmount) <= 0) {
+      Alert.alert('Error', 'Please enter an amount to send');
+      return;
+    }
+
+    if (!selectedRecipient) {
+      Alert.alert('Error', 'Please select a recipient');
+      return;
+    }
+
+    const currentBalance = balance?.[fromCurrency]?.balance || '0';
+    const totalAmount = parseFloat(sendAmount) + parseFloat(fee);
+
+    if (parseFloat(currentBalance) < totalAmount) {
+      Alert.alert(
+        'Insufficient Balance',
+        `You need ${totalAmount} ${fromCurrency} (${sendAmount} + ${fee} fee) but only have ${currentBalance} ${fromCurrency}`
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Confirm Fiat Payout',
+      `Send ${sendAmount} ${fromCurrency} to ${selectedRecipient.name}?\n\nRecipient gets: ${receiveAmount} ${toCurrency}\nFee: ${fee} ${fromCurrency}\nTotal: ${totalAmount} ${fromCurrency}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Confirm', onPress: executePayout },
+      ]
+    );
+  };
+
+  const executePayout = async () => {
+    setSending(true);
+    try {
+      const result = await sendTransaction({
+        toAddress: selectedRecipient?.address || selectedRecipient?.walletAddress || selectedRecipient?.id || '',
+        amount: sendAmount,
+        currency: fromCurrency,
+        chain: 'bnb',
+        memo: `Fiat payout to ${selectedRecipient?.name || 'recipient'}`,
+      });
+
+      Alert.alert(
+        'Payout Successful!',
+        `Sent ${sendAmount} ${fromCurrency}\nRecipient gets: ${receiveAmount} ${toCurrency}\n\nTransaction ID: ${result.transactionId || 'N/A'}`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              setSendAmount('');
+              setReceiveAmount('');
+              setSelectedRecipient(null);
+              fetchData();
+              router.back();
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      Alert.alert('Payout Failed', error.message || 'Failed to send payout');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const selectRecipient = () => {
+    if (recipients.length === 0) {
+      Alert.alert('No Recipients', 'You have no saved recipients. Add one first.');
+      return;
+    }
+
+    const recipient = recipients[0];
+    setSelectedRecipient(recipient);
+    Alert.alert('Recipient Selected', `Selected: ${recipient.name || recipient.address}`);
+  };
+
+  const getUserBalance = () => {
+    return balance?.[fromCurrency]?.balance || '0';
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Theme.success} />
+          <Text style={styles.loadingText}>Loading payout data...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const currentCrypto = getCurrentCrypto();
+  const currentFiat = getCurrentFiat();
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      
+
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#1F2937" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.historyButton}>
+        <TouchableOpacity style={styles.historyButton} onPress={() => router.push('/records')}>
           <Ionicons name="time-outline" size={24} color="#1F2937" />
         </TouchableOpacity>
       </View>
@@ -42,12 +241,9 @@ const FiatPayoutScreen = () => {
         <View style={styles.banner}>
           <View style={styles.bannerContent}>
             <Text style={styles.bannerIcon}>🔥</Text>
-            <Text style={styles.bannerText}>New 2 fiat currencies launch</Text>
+            <Text style={styles.bannerText}>Select from multiple currencies</Text>
             <View style={styles.flagContainer}>
-              <Text style={styles.flag}>🇵🇰</Text>
-              <View style={styles.euFlag}>
-                <Text style={styles.flag}>🇪🇺</Text>
-              </View>
+              <Text style={styles.flag}>💰</Text>
             </View>
           </View>
         </View>
@@ -62,32 +258,37 @@ const FiatPayoutScreen = () => {
               onChangeText={setSendAmount}
               keyboardType="decimal-pad"
               placeholder="0.00"
+              placeholderTextColor={Theme.muted}
             />
-            <TouchableOpacity style={styles.currencySelector}>
-              <View style={styles.currencyIcon}>
-                <Text style={styles.currencyIconText}>₮</Text>
+            <TouchableOpacity
+              style={styles.currencySelector}
+              onPress={() => setShowFromCurrencyModal(true)}
+            >
+              <View style={[styles.currencyIcon, { backgroundColor: currentCrypto.color }]}>
+                <Text style={styles.currencyIconText}>{currentCrypto.icon}</Text>
               </View>
               <Text style={styles.currencyText}>{fromCurrency}</Text>
               <Ionicons name="chevron-down" size={16} color="#6B7280" />
             </TouchableOpacity>
           </View>
-          <Text style={styles.availableText}>Available 0 {fromCurrency}</Text>
+          <Text style={styles.availableText}>
+            Available {parseFloat(getUserBalance()).toFixed(2)} {fromCurrency}
+          </Text>
         </View>
 
         {/* Recipient Gets Section */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Recipient gets</Text>
           <View style={styles.amountContainer}>
-            <TextInput
-              style={styles.amountInput}
-              value={receiveAmount}
-              onChangeText={setReceiveAmount}
-              keyboardType="decimal-pad"
-              placeholder="0.00"
-            />
-            <TouchableOpacity style={styles.currencySelector}>
+            <Text style={styles.amountInput}>
+              {receiveAmount || '0.00'}
+            </Text>
+            <TouchableOpacity
+              style={styles.currencySelector}
+              onPress={() => setShowToCurrencyModal(true)}
+            >
               <View style={styles.currencyIcon}>
-                <Text style={styles.flagEmoji}>🇺🇸</Text>
+                <Text style={styles.flagEmoji}>{currentFiat.flag}</Text>
               </View>
               <Text style={styles.currencyText}>{toCurrency}</Text>
               <Ionicons name="chevron-down" size={16} color="#6B7280" />
@@ -98,18 +299,25 @@ const FiatPayoutScreen = () => {
         {/* Exchange Rate */}
         <View style={styles.exchangeRate}>
           <Ionicons name="trending-up" size={16} color="#6B7280" />
-          <Text style={styles.exchangeText}>1.00 {fromCurrency} ≈ 0.9894 {toCurrency}</Text>
+          <Text style={styles.exchangeText}>
+            1.00 {fromCurrency} ≈ {exchangeRate.toFixed(4)} {toCurrency}
+          </Text>
         </View>
 
         {/* Receive with Section */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Receive with</Text>
-          
-          <TouchableOpacity style={styles.recipientSelector}>
+
+          <TouchableOpacity
+            style={styles.recipientSelector}
+            onPress={selectRecipient}
+          >
             <View style={styles.addButton}>
-              <Ionicons name="add" size={20} color="#6B7280" />
+              <Ionicons name={selectedRecipient ? "checkmark" : "add"} size={20} color={selectedRecipient ? Theme.success : "#6B7280"} />
             </View>
-            <Text style={styles.recipientText}>Select/add a recipient</Text>
+            <Text style={styles.recipientText}>
+              {selectedRecipient ? selectedRecipient.name || selectedRecipient.address?.substring(0, 20) + '...' : 'Select/add a recipient'}
+            </Text>
             <View style={styles.bankIcon}>
               <Ionicons name="business" size={20} color="#EF4444" />
             </View>
@@ -121,19 +329,122 @@ const FiatPayoutScreen = () => {
         <View style={styles.transactionDetails}>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Fee</Text>
-            <Text style={styles.detailValue}>45.00 {fromCurrency}</Text>
+            <Text style={styles.detailValue}>{fee} {fromCurrency}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Total</Text>
+            <Text style={styles.detailValue}>
+              {(parseFloat(sendAmount || '0') + parseFloat(fee)).toFixed(2)} {fromCurrency}
+            </Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Estimated Arrival</Text>
-            <Text style={styles.detailValue}>Select recipient to check</Text>
+            <Text style={styles.detailValue}>
+              {selectedRecipient ? '1-3 business days' : 'Select recipient to check'}
+            </Text>
           </View>
         </View>
 
         {/* Send Button */}
-        <TouchableOpacity style={styles.sendButton} disabled={true}>
-          <Text style={styles.sendButtonText}>Send</Text>
+        <TouchableOpacity
+          style={[
+            styles.sendButton,
+            (!sendAmount || !selectedRecipient || sending) && styles.sendButtonDisabled
+          ]}
+          disabled={!sendAmount || !selectedRecipient || sending}
+          onPress={handleSend}
+        >
+          {sending ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text style={styles.sendButtonText}>
+              Send {sendAmount || '0'} {fromCurrency}
+            </Text>
+          )}
         </TouchableOpacity>
       </ScrollView>
+
+      {/* From Currency Selection Modal */}
+      <Modal
+        visible={showFromCurrencyModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowFromCurrencyModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowFromCurrencyModal(false)}
+        >
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Cryptocurrency</Text>
+            {cryptoCurrencies.map((currency) => (
+              <TouchableOpacity
+                key={currency.symbol}
+                style={styles.currencyOption}
+                onPress={() => selectFromCurrency(currency)}
+              >
+                <View style={[styles.currencyIconSmall, { backgroundColor: currency.color }]}>
+                  <Text style={styles.currencyIconText}>{currency.icon}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.currencyName}>{currency.name}</Text>
+                  <Text style={styles.currencySymbolText}>{currency.symbol}</Text>
+                </View>
+                {fromCurrency === currency.symbol && (
+                  <Ionicons name="checkmark-circle" size={24} color={Theme.success} />
+                )}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setShowFromCurrencyModal(false)}
+            >
+              <Text style={styles.modalCloseText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* To Currency Selection Modal */}
+      <Modal
+        visible={showToCurrencyModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowToCurrencyModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowToCurrencyModal(false)}
+        >
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Fiat Currency</Text>
+            {fiatCurrencies.map((currency) => (
+              <TouchableOpacity
+                key={currency.symbol}
+                style={styles.currencyOption}
+                onPress={() => selectToCurrency(currency)}
+              >
+                <Text style={styles.currencyFlag}>{currency.flag}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.currencyName}>{currency.name}</Text>
+                  <Text style={styles.currencySymbolText}>{currency.symbol}</Text>
+                </View>
+                {toCurrency === currency.symbol && (
+                  <Ionicons name="checkmark-circle" size={24} color={Theme.success} />
+                )}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setShowToCurrencyModal(false)}
+            >
+              <Text style={styles.modalCloseText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -142,6 +453,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Theme.bg,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: Theme.muted,
   },
   header: {
     flexDirection: 'row',
@@ -202,57 +523,54 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginLeft: 4,
   },
-  euFlag: {
-    marginLeft: 4,
-  },
   section: {
     marginBottom: 24,
   },
   sectionLabel: {
-    fontSize: 16,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '600',
     color: Theme.muted,
     marginBottom: 12,
   },
   amountContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: Theme.border,
+    borderRadius: 12,
+    padding: 16,
+    backgroundColor: Theme.card,
   },
   amountInput: {
     flex: 1,
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: '600',
     color: Theme.text,
-    padding: 0,
   },
   currencySelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     gap: 8,
   },
   currencyIcon: {
-    width: 24,
-    height: 24,
-    backgroundColor: Theme.success,
-    borderRadius: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#26A17B',
     alignItems: 'center',
     justifyContent: 'center',
   },
   currencyIconText: {
-    fontSize: 12,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
   flagEmoji: {
-    fontSize: 16,
+    fontSize: 20,
   },
   currencyText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
     color: Theme.text,
   },
@@ -264,9 +582,9 @@ const styles = StyleSheet.create({
   exchangeRate: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
     gap: 8,
+    paddingVertical: 12,
+    marginBottom: 24,
   },
   exchangeText: {
     fontSize: 14,
@@ -275,61 +593,123 @@ const styles = StyleSheet.create({
   recipientSelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: Theme.border,
     borderRadius: 12,
     padding: 16,
-    gap: 12,
+    backgroundColor: Theme.card,
   },
   addButton: {
-    width: 40,
-    height: 40,
-    backgroundColor: Theme.border,
-    borderRadius: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 12,
   },
   recipientText: {
     flex: 1,
     fontSize: 16,
-    color: Theme.muted,
+    color: Theme.text,
   },
   bankIcon: {
-    width: 40,
-    height: 40,
-    backgroundColor: '#FEE2E2',
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginRight: 8,
   },
   transactionDetails: {
-    marginBottom: 32,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
   },
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
+    marginBottom: 12,
   },
   detailLabel: {
-    fontSize: 16,
+    fontSize: 14,
     color: Theme.muted,
   },
   detailValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: Theme.text,
   },
   sendButton: {
-    backgroundColor: '#E5E7EB',
+    backgroundColor: Theme.success,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
     marginBottom: 32,
   },
+  sendButtonDisabled: {
+    backgroundColor: Theme.border,
+  },
   sendButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#9CA3AF',
+    color: '#FFFFFF',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: Theme.bg,
+    borderRadius: 16,
+    padding: 24,
+    width: '85%',
+    maxHeight: '70%',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Theme.text,
+    marginBottom: 20,
+  },
+  currencyOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.border,
+  },
+  currencyIconSmall: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  currencyFlag: {
+    fontSize: 32,
+    marginRight: 12,
+  },
+  currencyName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Theme.text,
+  },
+  currencySymbolText: {
+    fontSize: 14,
+    color: Theme.muted,
+    marginTop: 2,
+  },
+  modalCloseButton: {
+    marginTop: 20,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+  },
+  modalCloseText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Theme.text,
   },
 });
 

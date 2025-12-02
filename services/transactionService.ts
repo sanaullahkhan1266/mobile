@@ -1,8 +1,17 @@
-import { api } from '@/utils/apiClient';
 import { API_ENDPOINTS } from '@/constants/api';
+import { api } from '@/utils/apiClient';
 
 export interface SendTransactionParams {
   to: string;
+  amount: string;
+  currency: string;
+  chain: string;
+  memo?: string;
+}
+
+export interface P2PTransferParams {
+  recipient: string;
+  recipientType: 'uid' | 'email' | 'phone';
   amount: string;
   currency: string;
   chain: string;
@@ -29,10 +38,11 @@ export interface TransactionResponse {
   message: string;
   transactionHash?: string;
   transactionId?: string;
+  data?: any;
 }
 
 /**
- * Send a cryptocurrency transaction
+ * Send a cryptocurrency transaction to a wallet address
  */
 export const sendTransaction = async (params: SendTransactionParams): Promise<TransactionResponse> => {
   try {
@@ -44,7 +54,61 @@ export const sendTransaction = async (params: SendTransactionParams): Promise<Tr
   } catch (error: any) {
     console.error('Failed to send transaction:', error);
     throw {
-      message: error?.data?.message || error?.message || 'Transaction failed',
+      message: error?.response?.data?.message || error?.message || 'Transaction failed',
+      error
+    };
+  }
+};
+
+/**
+ * Send a P2P transfer to another user via UID, email, or phone
+ */
+export const sendP2PTransfer = async (params: P2PTransferParams): Promise<TransactionResponse> => {
+  try {
+    const response = await api.post<TransactionResponse>(
+      '/api/tx/p2p',
+      params
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('Failed to send P2P transfer:', error);
+    throw {
+      message: error?.response?.data?.message || error?.message || 'P2P transfer failed',
+      error
+    };
+  }
+};
+
+/**
+ * Send to a recipient using their identifier (UID, email, or phone)
+ * This function automatically detects the type and calls the appropriate endpoint
+ */
+export const sendToRecipient = async (params: {
+  recipient: string;
+  amount: string;
+  currency: string;
+  chain: string;
+  memo?: string;
+}): Promise<TransactionResponse> => {
+  try {
+    // Detect recipient type
+    let recipientType: 'uid' | 'email' | 'phone' = 'uid';
+
+    if (params.recipient.includes('@')) {
+      recipientType = 'email';
+    } else if (/^\+?[0-9]+$/.test(params.recipient.replace(/[\s\-()]/g, ''))) {
+      recipientType = 'phone';
+    }
+
+    // Send P2P transfer
+    return await sendP2PTransfer({
+      ...params,
+      recipientType
+    });
+  } catch (error: any) {
+    console.error('Failed to send to recipient:', error);
+    throw {
+      message: error?.message || 'Failed to send transaction',
       error
     };
   }
@@ -69,7 +133,7 @@ export const getTransactionHistory = async (params?: {
   } catch (error: any) {
     console.error('Failed to fetch transaction history:', error);
     throw {
-      message: error?.data?.message || error?.message || 'Failed to load transactions',
+      message: error?.response?.data?.message || error?.message || 'Failed to load transactions',
       error
     };
   }
@@ -87,7 +151,7 @@ export const getTransactionById = async (transactionId: string): Promise<Transac
   } catch (error: any) {
     console.error(`Failed to fetch transaction ${transactionId}:`, error);
     throw {
-      message: error?.data?.message || error?.message || 'Transaction not found',
+      message: error?.response?.data?.message || error?.message || 'Transaction not found',
       error
     };
   }
@@ -109,10 +173,10 @@ export const calculateTransactionFee = async (params: {
     return response.data;
   } catch (error: any) {
     console.error('Failed to calculate fee:', error);
-    throw {
-      message: error?.data?.message || error?.message || 'Fee calculation failed',
-      error
-    };
+    // Return default fee if calculation fails
+    const defaultFee = '0.001';
+    const total = (parseFloat(params.amount) + parseFloat(defaultFee)).toFixed(6);
+    return { fee: defaultFee, total };
   }
 };
 
@@ -129,5 +193,42 @@ export const validateAddress = async (address: string, chain: string): Promise<{
   } catch (error: any) {
     console.error('Failed to validate address:', error);
     return { valid: false, message: 'Address validation failed' };
+  }
+};
+
+/**
+ * Get user info by UID, email, or phone for P2P transfers
+ */
+export const getUserByIdentifier = async (identifier: string): Promise<{
+  found: boolean;
+  user?: {
+    id: string;
+    name: string;
+    email?: string;
+    phone?: string;
+  };
+  message?: string;
+}> => {
+  try {
+    const response = await api.post<{
+      found: boolean;
+      user?: {
+        id: string;
+        name: string;
+        email?: string;
+        phone?: string;
+      };
+      message?: string;
+    }>(
+      '/api/user/find',
+      { identifier }
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('Failed to find user:', error);
+    return {
+      found: false,
+      message: error?.response?.data?.message || 'User not found'
+    };
   }
 };

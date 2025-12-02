@@ -81,15 +81,18 @@ const VerifyPage = () => {
 
       console.log('✅✅ Login successful! Redirecting to home...');
 
-      // Save auth token to secure store
-      if (loginData.token) {
+      // Save auth token to secure store - backend returns 'jwtToken' field
+      const token = loginData.jwtToken || loginData.token; // Support both field names
+      if (token) {
         try {
           const SecureStore = await import('expo-secure-store');
-          await SecureStore.setItemAsync('authToken', loginData.token);
-          console.log('✅ Auth token saved to secure store');
+          await SecureStore.setItemAsync('authToken', token);
+          console.log('✅ Auth token saved to secure store:', token.substring(0, 30) + '...');
         } catch (tokenError) {
-          console.error('Failed to save auth token:', tokenError);
+          console.error('❌ Failed to save auth token:', tokenError);
         }
+      } else {
+        console.warn('⚠️ No auth token in login response!');
       }
 
       // Success!
